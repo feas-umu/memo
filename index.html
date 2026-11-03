@@ -1,0 +1,1095 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="description" content="Turn a sent email into sharp A4 PNG images or a PDF to share on WhatsApp. Runs entirely in your browser.">
+<style>html{color-scheme:light}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<title>Email to A4</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Figtree:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&display=swap">
+<style>
+/* Layout: two-pane workbench — message editor on the left, live A4 pages on a "desk" to the right; stacks on phones. */
+:root {
+  --bg: #edf0f4;
+  --surface: #ffffff;
+  --ink: #17202b;
+  --muted: #5a6575;
+  --line: #d4dae3;
+  --accent: #1d5891;
+  --accent-ink: #ffffff;
+  --accent-soft: #e2ebf6;
+  --desk: #dde2e9;
+  --note: #7a5200;
+  --note-soft: #fbf0d9;
+  --ok: #1f6b45;
+  --font-display: "Bricolage Grotesque", "Figtree", system-ui, sans-serif;
+  --font-ui: "Figtree", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-paper: "IBM Plex Sans", Arial, Helvetica, sans-serif;
+  --radius: 10px;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #10141a; --surface: #181e27; --ink: #e6eaf0; --muted: #98a3b3; --line: #2b333f;
+    --accent: #82b2e6; --accent-ink: #0d1520; --accent-soft: #1b2939; --desk: #0b0e13;
+    --note: #f0c56c; --note-soft: #2c2414; --ok: #7fd1a4; color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #10141a; --surface: #181e27; --ink: #e6eaf0; --muted: #98a3b3; --line: #2b333f;
+  --accent: #82b2e6; --accent-ink: #0d1520; --accent-soft: #1b2939; --desk: #0b0e13;
+  --note: #f0c56c; --note-soft: #2c2414; --ok: #7fd1a4; color-scheme: dark;
+}
+
+body { background: var(--bg); color: var(--ink); font-family: var(--font-ui); font-size: 15px; line-height: 1.5; }
+#app { padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); padding-block: 20px 40px; max-width: 1360px; margin: 0 auto; }
+
+.topbar { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 6px 20px; margin-bottom: 18px; }
+.brand { font-family: var(--font-display); font-weight: 700; font-size: 26px; letter-spacing: -0.01em; margin: 0; line-height: 1.1; }
+.brand span { color: var(--accent); }
+.tagline { color: var(--muted); margin: 0; font-size: 14px; }
+
+.workbench { display: grid; gap: 20px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 920px) {
+  .workbench { grid-template-columns: minmax(0, 440px) minmax(0, 1fr); align-items: start; }
+  .desk { position: sticky; top: 16px; max-height: calc(100vh - 32px); overflow: auto; }
+}
+
+.panel { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); display: grid; gap: 0; min-width: 0; }
+.section { padding: 16px 18px; display: grid; gap: 12px; border-top: 1px solid var(--line); min-width: 0; }
+.section:first-child { border-top: 0; }
+.section h2 { margin: 0; font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); }
+
+.drop { border: 1.5px dashed var(--line); border-radius: 8px; padding: 14px; display: grid; gap: 10px; transition: border-color .15s, background .15s; }
+.drop.over, body.dragging .drop { border-color: var(--accent); background: var(--accent-soft); }
+.drop p { margin: 0; color: var(--muted); font-size: 14px; }
+.drop strong { color: var(--ink); font-weight: 600; }
+.row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+
+.btn { font: inherit; font-size: 14px; font-weight: 600; border-radius: 8px; padding: 8px 14px; border: 1px solid var(--line); background: var(--surface); color: var(--ink); cursor: pointer; display: inline-flex; align-items: center; gap: 6px; line-height: 1.2; }
+.btn:hover { border-color: var(--accent); }
+.btn.primary { background: var(--accent); color: var(--accent-ink); border-color: var(--accent); }
+.btn.primary:hover { filter: brightness(1.08); }
+.btn.small { font-size: 13px; padding: 6px 11px; }
+.btn:disabled { opacity: .5; cursor: default; }
+.btn:focus-visible, input:focus-visible, .editor:focus-visible, .seg label:focus-within, .switch input:focus-visible + span { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.status-chip { font-size: 12.5px; font-weight: 600; padding: 3px 9px; border-radius: 999px; background: var(--note-soft); color: var(--note); }
+.status-chip.loaded { background: var(--accent-soft); color: var(--accent); }
+
+details.help { font-size: 13.5px; color: var(--muted); }
+details.help summary { cursor: pointer; color: var(--accent); font-weight: 500; }
+details.help ul { margin: 8px 0 0; padding-left: 18px; display: grid; gap: 4px; }
+details.help b { color: var(--ink); font-weight: 600; }
+
+.fields { display: grid; gap: 8px; }
+.field { display: grid; grid-template-columns: 82px minmax(0, 1fr); align-items: center; gap: 10px; }
+.field label { font-size: 13px; color: var(--muted); }
+.field input { font: inherit; font-size: 14px; padding: 7px 10px; border-radius: 7px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); min-width: 0; width: 100%; box-sizing: border-box; }
+.field input::placeholder { color: var(--muted); opacity: .7; }
+
+.editor-wrap { border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.editor { background: #ffffff; color: #1b1f24; min-height: 180px; max-height: 460px; overflow: auto; padding: 14px 16px; font-family: var(--font-paper); font-size: 14px; line-height: 1.55; overflow-wrap: break-word; word-break: normal; }
+.editor:empty::before { content: attr(data-placeholder); color: #7b8491; }
+.editor img { max-width: 100%; height: auto; }
+.editor table { max-width: 100%; }
+.hint { font-size: 13px; color: var(--muted); margin: 0; }
+.notice { font-size: 13px; color: var(--note); background: var(--note-soft); border-radius: 7px; padding: 8px 10px; margin: 0; }
+
+.opt { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.opt .txt { display: grid; gap: 1px; min-width: 0; }
+.opt .txt span:first-child { font-size: 14px; font-weight: 500; }
+.opt .txt span + span { font-size: 12.5px; color: var(--muted); }
+.switch { position: relative; flex: none; }
+.switch input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.switch span { display: block; width: 38px; height: 22px; border-radius: 999px; background: var(--line); transition: background .15s; position: relative; }
+.switch span::after { content: ""; position: absolute; top: 3px; left: 3px; width: 16px; height: 16px; border-radius: 50%; background: var(--surface); transition: transform .15s; box-shadow: 0 1px 2px rgba(0,0,0,.25); }
+.switch input:checked + span { background: var(--accent); }
+.switch input:checked + span::after { transform: translateX(16px); }
+.switch input:disabled + span { opacity: .45; }
+
+.seg { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.seg label { display: grid; gap: 1px; padding: 8px 10px; cursor: pointer; border-left: 1px solid var(--line); text-align: center; }
+.seg label:first-child { border-left: 0; }
+.seg input { position: absolute; opacity: 0; pointer-events: none; }
+.seg b { font-size: 14px; font-weight: 600; }
+.seg small { font-family: var(--font-mono); font-size: 11px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.seg label:has(input:checked) { background: var(--accent-soft); }
+.seg label:has(input:checked) b { color: var(--accent); }
+
+.desk { background: var(--desk); border-radius: var(--radius); padding: 18px; display: grid; gap: 16px; min-width: 0; align-content: start; }
+.desk-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: center; gap: 10px 16px; }
+.dims { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.dims b { color: var(--ink); font-weight: 500; }
+.tip { font-size: 13px; color: var(--muted); margin: 0; }
+.tip b { color: var(--ink); font-weight: 600; }
+.pages { display: grid; gap: 22px; grid-template-columns: minmax(0, 1fr); }
+@media (min-width: 1200px) { .pages.multi { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.page-card { display: grid; gap: 8px; min-width: 0; }
+.page-card canvas { width: 100%; height: auto; display: block; background: #fff; border-radius: 2px; box-shadow: 0 1px 2px rgba(15,23,42,.12), 0 6px 18px rgba(15,23,42,.10); max-width: 640px; margin: 0 auto; }
+.page-bar { display: flex; justify-content: space-between; align-items: center; gap: 8px; max-width: 640px; width: 100%; margin: 0 auto; }
+.page-bar .lbl { font-family: var(--font-mono); font-size: 12px; color: var(--muted); }
+.busy { font-size: 12.5px; color: var(--muted); }
+
+.toast { position: fixed; left: 50%; transform: translateX(-50%); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); background: var(--ink); color: var(--bg); padding: 10px 16px; border-radius: 8px; font-size: 14px; max-width: calc(100vw - 40px); box-shadow: 0 6px 20px rgba(0,0,0,.2); z-index: 20; }
+.drop-overlay { position: fixed; inset: 0; background: color-mix(in srgb, var(--accent) 14%, transparent); border: 3px dashed var(--accent); z-index: 30; display: grid; place-items: center; font-family: var(--font-display); font-size: 24px; font-weight: 700; color: var(--accent); pointer-events: none; }
+
+/* ---------- The printed page (always white paper; it is the output) ---------- */
+#paper { --pa: #1d4f8c; --pa-tint: #edf2f9; --pa-line: #c9d7ea; position: absolute; left: -30000px; top: 0; width: 682px; background: #ffffff; color: #262a31; font-family: var(--font-paper); font-size: 14.5px; line-height: 1.62; overflow-wrap: break-word; word-break: normal; }
+.p-head { margin-bottom: 24px; }
+.p-letter { display: flex; justify-content: space-between; align-items: baseline; gap: 16px; padding-bottom: 10px; margin-bottom: 22px; border-bottom: 2px solid var(--pa); }
+.p-letter .org { font-weight: 600; font-size: 12.5px; letter-spacing: 0.09em; text-transform: uppercase; color: var(--pa); }
+.p-letter .kind { font-size: 10.5px; letter-spacing: 0.16em; text-transform: uppercase; color: #7a828e; }
+.p-subject { font-size: 22px; font-weight: 600; line-height: 1.28; margin: 0 0 16px; color: #111418; text-wrap: balance; letter-spacing: -0.005em; }
+.p-meta { display: grid; grid-template-columns: 84px minmax(0, 1fr); gap: 6px 14px; font-size: 13px; line-height: 1.45; margin: 0; }
+.p-meta dt { color: #7a828e; font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; padding-top: 2px; }
+.p-meta dd { margin: 0; color: #1f2329; }
+.p-meta .addr { color: #7a828e; }
+.p-rule { height: 1px; background: #dde1e7; margin-top: 18px; }
+
+/* Letterhead style */
+.style-letterhead .p-letter { border-bottom: 0; padding-bottom: 0; margin-bottom: 14px; }
+.style-letterhead .p-subject { font-family: "Source Serif 4", Georgia, "Times New Roman", serif; font-size: 29px; font-weight: 600; line-height: 1.18; letter-spacing: -0.01em; color: #14181d; margin-bottom: 20px; }
+.style-letterhead .p-meta { background: var(--pa-tint); border-radius: 8px; padding: 14px 18px; }
+.style-letterhead .p-meta dt { color: var(--pa); }
+.style-letterhead .p-rule { display: none; }
+
+/* Memo style */
+.p-memo-title { display: none; }
+.style-memo .p-memo-title { display: block; font-family: "Source Serif 4", Georgia, "Times New Roman", serif; font-size: 34px; font-weight: 700; letter-spacing: 0.16em; text-transform: uppercase; color: #14181d; margin: 0 0 14px; line-height: 1.1; }
+.style-memo .p-letter { border-bottom: 0; padding: 0; margin: 0 0 6px; }
+.style-memo .p-letter .kind { display: none; }
+.style-memo .p-subject { display: none; }
+.style-memo .p-meta { grid-template-columns: 104px minmax(0, 1fr); gap: 0; border-top: 2px solid #14181d; font-size: 13.5px; }
+.style-memo .p-meta dt, .style-memo .p-meta dd { padding: 8px 0; border-bottom: 1px solid #dde1e7; }
+.style-memo .p-meta dt { font-weight: 600; color: #14181d; font-size: 11px; padding-top: 10px; }
+.style-memo .p-meta dd.subj { font-weight: 600; color: #14181d; }
+.style-memo .p-rule { height: 2px; background: #14181d; margin-top: -1px; }
+
+/* Body typography */
+.p-body > :first-child { margin-top: 0 !important; }
+.p-body img, .editor img { max-width: 100% !important; height: auto !important; }
+.p-body table, .editor table { max-width: 100% !important; border-collapse: collapse; }
+.p-body p, .editor p { margin: 0 0 0.85em; }
+.p-body p.MsoNormal, .p-body .MsoNormal, .editor .MsoNormal { margin: 0; }
+.p-body h1, .p-body h2, .p-body h3, .p-body h4 { color: #14181d; line-height: 1.3; margin: 1.2em 0 0.45em; font-weight: 600; }
+.p-body h1 { font-size: 19px; } .p-body h2 { font-size: 17px; } .p-body h3, .p-body h4 { font-size: 15px; }
+.p-body ul, .p-body ol { margin: 0 0 0.9em; padding-left: 1.5em; }
+.p-body li { margin: 0.25em 0; }
+.p-body b, .p-body strong { font-weight: 600; color: #14181d; }
+.p-body hr { border: 0; height: 1px; background: #dde1e7; margin: 1.2em 0; }
+.p-body blockquote, .editor blockquote { margin: 0.7em 0 0.9em; padding: 2px 0 2px 14px; border-left: 3px solid #d0d5dc; color: #4a525e; }
+.p-body blockquote { border-left-color: var(--pa-line); }
+.p-body pre, .editor pre { white-space: pre-wrap; font-family: inherit; margin: 0; }
+.p-body a { color: var(--pa); }
+.editor a { color: #1a55a0; }
+.p-body table.p-data { width: 100%; margin: 0.5em 0 1.2em; font-size: 13.5px; line-height: 1.45; border: 1px solid #dfe4ea; }
+.p-body table.p-data th, .p-body table.p-data td { padding: 8px 12px; text-align: left; vertical-align: top; border: 0; border-bottom: 1px solid #e6e9ee; }
+.p-body table.p-data thead th, .p-body table.p-data thead td, .p-body table.p-data tr.p-hrow > * { background: var(--pa-tint); color: var(--pa); font-weight: 600; font-size: 11.5px; letter-spacing: 0.05em; text-transform: uppercase; border-bottom: 1px solid var(--pa-line); }
+.p-body table.p-data thead b, .p-body table.p-data thead strong, .p-body table.p-data tr.p-hrow b, .p-body table.p-data tr.p-hrow strong { color: inherit; font-weight: inherit; }
+.p-body table.p-data tbody tr:nth-child(even):not(.p-hrow) > td { background: #f8f9fb; }
+.p-body table.p-data tr:last-child > td { border-bottom: 0; }
+.editor .sample-table td, .editor .sample-table th, .p-body .sample-table:not(.p-data) td, .p-body .sample-table:not(.p-data) th { border: 1px solid #cfd5dd; padding: 6px 9px; text-align: left; vertical-align: top; }
+.editor .sample-table th, .p-body .sample-table:not(.p-data) th { background: #f1f4f7; font-weight: 600; }
+
+/* Swatches */
+.swatches { display: flex; flex-wrap: wrap; gap: 10px; }
+.swatches label { position: relative; width: 30px; height: 30px; border-radius: 50%; cursor: pointer; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+.swatches input { position: absolute; opacity: 0; inset: 0; margin: 0; cursor: pointer; }
+.swatches label:has(input:checked) { outline: 2px solid var(--ink); outline-offset: 2px; }
+.swatches label:focus-within { outline: 2px solid var(--accent); outline-offset: 2px; }
+.optlabel { font-size: 14px; font-weight: 500; }
+
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+
+<div id="app">
+  <header class="topbar">
+    <h1 class="brand">Email <span>to A4</span></h1>
+    <p class="tagline">Turn a sent email into sharp A4 images for your WhatsApp group.</p>
+  </header>
+
+  <main class="workbench">
+    <section class="panel" aria-label="Email">
+      <div class="section">
+        <div class="row" style="justify-content: space-between;">
+          <h2>Email</h2>
+          <span id="srcChip" class="status-chip">Sample email</span>
+        </div>
+        <div class="drop" id="drop">
+          <p><strong>Drop your .eml file here</strong>, or open it. Everything stays in your browser.</p>
+          <div class="row">
+            <button class="btn primary" id="openBtn" type="button">Open email file</button>
+            <button class="btn" id="blankBtn" type="button">Start blank and paste</button>
+            <input type="file" id="fileInput" accept=".eml,.txt,message/rfc822" hidden>
+          </div>
+        </div>
+        <details class="help">
+          <summary>How to get the email file</summary>
+          <ul>
+            <li><b>Gmail:</b> open the sent email, tap ⋮ (More) and choose <b>Download message</b>.</li>
+            <li><b>Outlook on the web:</b> open the email, choose … then <b>Save</b> or <b>Download</b>.</li>
+            <li><b>Outlook for Mac:</b> drag the email from the list onto your desktop.</li>
+            <li><b>Outlook for Windows:</b> choose <b>Start blank and paste</b>, then copy the email body in.</li>
+            <li><b>Yahoo Mail:</b> choose … then <b>View raw message</b>, copy it all and paste it into the body box.</li>
+          </ul>
+        </details>
+      </div>
+
+      <div class="section">
+        <h2>Header</h2>
+        <div class="fields">
+          <div class="field"><label for="fSubject">Subject</label><input id="fSubject" autocomplete="off"></div>
+          <div class="field"><label for="fFrom">From</label><input id="fFrom" autocomplete="off"></div>
+          <div class="field"><label for="fTo">To</label><input id="fTo" autocomplete="off"></div>
+          <div class="field"><label for="fCc">Cc</label><input id="fCc" autocomplete="off" placeholder="Optional"></div>
+          <div class="field"><label for="fDate">Date</label><input id="fDate" autocomplete="off"></div>
+          <div class="field"><label for="fAtt">Attached</label><input id="fAtt" autocomplete="off" placeholder="Optional, e.g. Report.pdf"></div>
+        </div>
+      </div>
+
+      <div class="section">
+        <div class="row" style="justify-content: space-between;">
+          <h2>Body</h2>
+          <span class="hint">Edit or remove anything before sharing</span>
+        </div>
+        <div class="editor-wrap">
+          <div id="body" class="editor" contenteditable="true" role="textbox" aria-multiline="true" aria-label="Email body" data-placeholder="Paste the email body here"></div>
+        </div>
+        <p id="imgNote" class="notice" hidden></p>
+        <div class="opt">
+          <div class="txt"><span>Hide earlier messages in the thread</span><span id="quoteSub">Only shows when the email has a quoted reply</span></div>
+          <label class="switch"><input type="checkbox" id="optQuote" checked disabled aria-label="Hide earlier messages in the thread"><span></span></label>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Page</h2>
+        <div class="seg" role="radiogroup" aria-label="Page style">
+          <label><input type="radio" name="pstyle" value="classic" checked><b>Classic</b><small>Clean header</small></label>
+          <label><input type="radio" name="pstyle" value="letterhead"><b>Letterhead</b><small>Colour band</small></label>
+          <label><input type="radio" name="pstyle" value="memo"><b>Memo</b><small>Formal</small></label>
+        </div>
+        <div class="opt">
+          <span class="optlabel">Colour</span>
+          <div class="swatches" role="radiogroup" aria-label="Accent colour" id="swatches"></div>
+        </div>
+        <div class="opt">
+          <div class="txt"><span>Tidy formatting</span><span>One clean font, even spacing and styled tables. Turn off to keep the email’s own fonts and colours.</span></div>
+          <label class="switch"><input type="checkbox" id="optTidy" checked aria-label="Tidy formatting"><span></span></label>
+        </div>
+        <div class="field"><label for="fOrg">Heading</label><input id="fOrg" autocomplete="off" placeholder="Optional, e.g. your organisation"></div>
+        <div class="opt">
+          <div class="txt"><span>Names only</span><span>Hide email addresses in From, To and Cc</span></div>
+          <label class="switch"><input type="checkbox" id="optNames" aria-label="Names only"><span></span></label>
+        </div>
+        <div class="opt">
+          <div class="txt"><span>Page numbers</span><span>Footer with subject and “Page 1 of 2”</span></div>
+          <label class="switch"><input type="checkbox" id="optFooter" checked aria-label="Page numbers"><span></span></label>
+        </div>
+        <div class="seg" role="radiogroup" aria-label="Image resolution">
+          <label><input type="radio" name="dpi" value="150"><b>Standard</b><small>1240 × 1754</small></label>
+          <label><input type="radio" name="dpi" value="200" checked><b>High</b><small>1654 × 2339</small></label>
+          <label><input type="radio" name="dpi" value="300"><b>Print</b><small>2480 × 3508</small></label>
+        </div>
+      </div>
+    </section>
+
+    <section class="desk" aria-label="A4 pages">
+      <div class="desk-head">
+        <div class="dims" id="dims">A4</div>
+        <div class="row">
+          <span class="busy" id="busy" hidden>Updating…</span>
+          <button class="btn" id="shareBtn" type="button" hidden>Share</button>
+          <button class="btn" id="savePdf" type="button">Save as PDF</button>
+          <button class="btn primary" id="saveAll" type="button">Save all pages</button>
+        </div>
+      </div>
+      <p class="tip">In WhatsApp, send the image as a <b>Document</b>, or tap <b>HD</b> before sending, so it stays sharp. To send every page as one file, use <b>Save as PDF</b>.</p>
+      <div class="pages" id="pages"></div>
+    </section>
+  </main>
+</div>
+
+<div id="paper" aria-hidden="true"></div>
+<div id="toast" class="toast" role="status" aria-live="polite" hidden></div>
+<div id="dropOverlay" class="drop-overlay" hidden>Drop the email file</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script>
+(() => {
+  'use strict';
+  const $ = (s) => document.querySelector(s);
+
+  // ---------- Geometry (CSS px at 96 DPI) ----------
+  const A4W = 794, A4H = 1123, MX = 56, MT = 60, MB = 78;
+  const COLW = A4W - 2 * MX;           // 682
+  const CAP = A4H - MT - MB;           // usable height per page
+  const PREVIEW_SCALE = 1.4;
+  const a4px = (dpi) => [Math.round(210 / 25.4 * dpi), Math.round(297 / 25.4 * dpi)];
+
+  // ---------- Settings (per-viewer, optional) ----------
+  const SKEY = 'email-a4-settings-v1';
+  const settings = { dpi: 200, org: '', namesOnly: false, footer: true, style: 'classic', accent: 'navy', tidy: true };
+  const ACCENTS = {
+    navy:     { name: 'Navy',     c: '#1d4f8c', tint: '#edf2f9', line: '#c9d7ea' },
+    forest:   { name: 'Forest',   c: '#1f6a49', tint: '#ecf5f0', line: '#c4dfd1' },
+    maroon:   { name: 'Maroon',   c: '#8b2333', tint: '#f8eef0', line: '#e7c6cc' },
+    teal:     { name: 'Teal',     c: '#0e6c78', tint: '#e9f4f5', line: '#bfdfe3' },
+    charcoal: { name: 'Charcoal', c: '#30353d', tint: '#f1f2f4', line: '#d3d6db' }
+  };
+  try { Object.assign(settings, JSON.parse(localStorage.getItem(SKEY) || '{}')); } catch (e) {}
+  const saveSettings = () => { try { localStorage.setItem(SKEY, JSON.stringify(settings)); } catch (e) {} };
+
+  const state = { sourceHtml: '', hasQuote: false, blocked: 0, pages: [], rendering: false, pending: false, loadedName: '' };
+
+  // ---------- Downloads capability ----------
+  // Inside Claude the page saves through the downloads capability; hosted anywhere else
+  // (GitHub Pages, Netlify…) it uses an ordinary browser download and the phone's share sheet.
+  const IN_CLAUDE = !!(window.claude && typeof window.claude.use === 'function');
+  let downloadsP = IN_CLAUDE ? window.claude.use('downloads').catch(() => null) : Promise.resolve(null);
+  async function canSave() { return !IN_CLAUDE || !!(await downloadsP); }
+  async function deliver(filename, blob) {
+    if (IN_CLAUDE) {
+      const dl = await downloadsP;
+      if (!dl) { const e = new Error('unavailable'); e.code = 'unavailable'; throw e; }
+      return dl.save({ filename, data: blob });
+    }
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a'); a.href = url; a.download = filename;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+    return { status: 'saved' };
+  }
+
+  // ---------- Small helpers ----------
+  function toast(msg, ms = 3200) {
+    const t = $('#toast'); t.textContent = msg; t.hidden = false;
+    clearTimeout(toast._t); toast._t = setTimeout(() => { t.hidden = true; }, ms);
+  }
+  const esc = (s) => String(s).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+  function fmtSize(n) { if (n < 1024) return n + ' B'; if (n < 1048576) return Math.round(n / 1024) + ' KB'; return (n / 1048576).toFixed(1) + ' MB'; }
+  function fmtDate(d) {
+    try { return new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' }).format(d).replace(/ at /, ', '); }
+    catch (e) { return d.toString(); }
+  }
+
+  // ---------- MIME parsing ----------
+  function bytesToBin(u8) { let s = ''; for (let i = 0; i < u8.length; i += 8192) s += String.fromCharCode.apply(null, u8.subarray(i, i + 8192)); return s; }
+  function binToBytes(s) { const u = new Uint8Array(s.length); for (let i = 0; i < s.length; i++) u[i] = s.charCodeAt(i) & 255; return u; }
+  function decodeCharset(bytes, cs) {
+    cs = (cs || 'utf-8').toLowerCase().replace(/^"|"$/g, '').trim();
+    if (cs === 'us-ascii' || cs === 'ascii' || cs === 'ansi_x3.4-1968') cs = 'utf-8';
+    try { return new TextDecoder(cs).decode(bytes); } catch (e) { return new TextDecoder('utf-8').decode(bytes); }
+  }
+  function splitHeadBody(bin) {
+    const m = bin.match(/\r?\n\r?\n/);
+    if (!m) return [bin, ''];
+    return [bin.slice(0, m.index), bin.slice(m.index + m[0].length)];
+  }
+  function parseHeaders(head) {
+    const lines = head.replace(/\r\n/g, '\n').replace(/\n([ \t])/g, '$1').split('\n');
+    const h = {};
+    for (const l of lines) {
+      const i = l.indexOf(':'); if (i < 1) continue;
+      const k = l.slice(0, i).trim().toLowerCase();
+      if (!(k in h)) h[k] = l.slice(i + 1).trim();
+    }
+    return h;
+  }
+  function decodeWords(s) {
+    const re = /=\?([^?]+)\?([bqBQ])\?([^?]*)\?=/g;
+    let out = '', last = 0, pend = null, m;
+    while ((m = re.exec(s))) {
+      const between = s.slice(last, m.index);
+      const cs = m[1].split('*')[0].toLowerCase();
+      let bin;
+      if (m[2].toUpperCase() === 'B') { try { bin = atob(m[3].replace(/\s/g, '')); } catch (e) { bin = m[0]; } }
+      else bin = m[3].replace(/_/g, ' ').replace(/=([0-9A-Fa-f]{2})/g, (_, x) => String.fromCharCode(parseInt(x, 16)));
+      if (pend && /^\s*$/.test(between) && pend.cs === cs) pend.bin += bin;
+      else { if (pend) out += decodeCharset(binToBytes(pend.bin), pend.cs); out += between; pend = { cs, bin }; }
+      last = re.lastIndex;
+    }
+    if (pend) out += decodeCharset(binToBytes(pend.bin), pend.cs);
+    return out + s.slice(last);
+  }
+  const hval = (h, k) => h[k] == null ? '' : decodeWords(decodeCharset(binToBytes(h[k]), 'utf-8')).replace(/\s+/g, ' ').trim();
+  function parseParams(v) {
+    const parts = []; let cur = '', q = false;
+    for (const ch of v || '') { if (ch === '"') { q = !q; cur += ch; } else if (ch === ';' && !q) { parts.push(cur); cur = ''; } else cur += ch; }
+    parts.push(cur);
+    const value = (parts.shift() || '').trim().toLowerCase();
+    const params = {}, cset = {};
+    for (const p of parts) {
+      const i = p.indexOf('='); if (i < 0) continue;
+      const k = p.slice(0, i).trim().toLowerCase();
+      let val = p.slice(i + 1).trim();
+      if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
+      const m = k.match(/^(.+?)\*(\d+)?\*?$/);
+      if (m) {
+        const base = m[1];
+        if (k.endsWith('*')) {
+          const mm = val.match(/^([^']*)'[^']*'(.*)$/);
+          if (mm) { cset[base] = mm[1] || 'utf-8'; val = mm[2]; }
+          val = decodeCharset(binToBytes(val.replace(/%([0-9A-Fa-f]{2})/g, (_, x) => String.fromCharCode(parseInt(x, 16)))), cset[base] || 'utf-8');
+        }
+        params[base] = (params[base] || '') + val;
+      } else params[k] = val;
+    }
+    return { value, params };
+  }
+  function splitMultipart(body, boundary) {
+    const delim = '--' + boundary; const lines = body.split(/\r?\n/); const parts = []; let cur = null;
+    for (const line of lines) {
+      if (line.startsWith(delim)) {
+        const rest = line.slice(delim.length);
+        if (rest === '' || rest === '--' || /^\s*$/.test(rest) || /^--\s*$/.test(rest)) {
+          if (cur) parts.push(cur.join('\r\n'));
+          if (rest.startsWith('--')) { cur = null; break; }
+          cur = []; continue;
+        }
+      }
+      if (cur) cur.push(line);
+    }
+    if (cur && cur.length) parts.push(cur.join('\r\n'));
+    return parts;
+  }
+  function decodeBody(body, enc) {
+    if (enc === 'base64') { try { return binToBytes(atob(body.replace(/[^A-Za-z0-9+/=]/g, '').replace(/=+(?=[A-Za-z0-9+/])/g, ''))); } catch (e) { return new Uint8Array(0); } }
+    if (enc === 'quoted-printable') return binToBytes(body.replace(/=\r?\n/g, '').replace(/=([0-9A-Fa-f]{2})/g, (_, x) => String.fromCharCode(parseInt(x, 16))));
+    return binToBytes(body);
+  }
+  function parsePart(bin, out, depth) {
+    const [head, body] = splitHeadBody(bin);
+    const h = parseHeaders(head);
+    const ct = parseParams(h['content-type'] || 'text/plain; charset=us-ascii');
+    const enc = (h['content-transfer-encoding'] || '7bit').toLowerCase().trim();
+    const disp = parseParams(h['content-disposition'] || '');
+    const cid = (h['content-id'] || '').replace(/[<>\s]/g, '').toLowerCase();
+    if (ct.value.startsWith('multipart/') && ct.params.boundary && depth < 12) {
+      for (const p of splitMultipart(body, ct.params.boundary)) parsePart(p, out, depth + 1);
+      return;
+    }
+    const bytes = decodeBody(body, enc);
+    const name = decodeWords(disp.params.filename || ct.params.name || '');
+    const isAtt = disp.value === 'attachment';
+    if (!isAtt && ct.value === 'text/html') out.html.push(decodeCharset(bytes, ct.params.charset));
+    else if (!isAtt && ct.value === 'text/plain' && !name) out.text.push(decodeCharset(bytes, ct.params.charset));
+    else if (ct.value.startsWith('image/') && cid) out.cids[cid] = { type: ct.value, bytes, name: name || 'image', used: false };
+    else if (ct.value === 'message/rfc822') out.atts.push({ name: name || 'Attached message', size: bytes.length });
+    else if (bytes.length || name) out.atts.push({ name: name || ct.value, size: bytes.length });
+  }
+  function parseEml(u8) {
+    let bin = bytesToBin(u8).replace(/^﻿/, '');
+    bin = bin.replace(/^\s+/, '');
+    if (/^From [^\r\n]*\r?\n/.test(bin) && !/^From:/.test(bin)) bin = bin.replace(/^From [^\r\n]*\r?\n/, '');
+    const [head] = splitHeadBody(bin);
+    const h = parseHeaders(head);
+    if (!h['from'] && !h['subject'] && !h['content-type']) throw new Error('not-email');
+    const out = { html: [], text: [], cids: {}, atts: [] };
+    parsePart(bin, out, 0);
+    for (const k in out.cids) out.cids[k].url = URL.createObjectURL(new Blob([out.cids[k].bytes], { type: out.cids[k].type }));
+    let html;
+    if (out.html.length) html = out.html.map(extractBody).join('<br>');
+    else html = textToHtml(out.text.join('\n\n'));
+    const san = sanitizeHtml(html, out.cids);
+    for (const k in out.cids) if (!out.cids[k].used) out.atts.push({ name: out.cids[k].name, size: out.cids[k].bytes.length });
+    const d = new Date(hval(h, 'date'));
+    return {
+      subject: hval(h, 'subject'), from: hval(h, 'from'), to: hval(h, 'to'), cc: hval(h, 'cc'),
+      date: isNaN(d) ? hval(h, 'date') : fmtDate(d),
+      atts: out.atts.filter((a) => a.name).map((a) => a.size ? `${a.name} (${fmtSize(a.size)})` : a.name).join(', '),
+      html: san.html, blocked: san.blocked
+    };
+  }
+  function extractBody(html) { const m = html.match(/<body[^>]*>([\s\S]*?)(<\/body>|$)/i); return m ? m[1] : html; }
+  function textToHtml(text) {
+    const lines = text.replace(/\r\n/g, '\n').split('\n');
+    let cut = -1;
+    for (let i = 0; i < lines.length; i++) {
+      const l = lines[i].trim();
+      if (/^-{2,}\s*Original Message\s*-{2,}$/i.test(l) || /^-{2,}\s*Forwarded message\s*-{2,}$/i.test(l)) { cut = i; break; }
+      if (/^On .{6,}wrote:$/.test(l) && (lines[i + 1] || '').trim().startsWith('>')) { cut = i; break; }
+      if (l.startsWith('>') && i > 0 && !lines.slice(i).some((x) => x.trim() && !x.trim().startsWith('>'))) { cut = i; break; }
+    }
+    const main = cut >= 0 ? lines.slice(0, cut) : lines;
+    let html = '<div style="white-space:pre-wrap">' + esc(main.join('\n').replace(/\s+$/, '')) + '</div>';
+    if (cut >= 0) html += '<blockquote type="cite"><div style="white-space:pre-wrap">' + esc(lines.slice(cut).join('\n')) + '</div></blockquote>';
+    return html;
+  }
+  function sanitizeHtml(html, cids) {
+    const doc = new DOMParser().parseFromString('<!doctype html><body>' + html + '</body>', 'text/html');
+    doc.querySelectorAll('script,style,link,meta,base,title,iframe,frame,frameset,object,embed,form,input,button,select,textarea,noscript,template,o\\:p').forEach((e) => {
+      if (e.tagName.toLowerCase() === 'o:p') e.replaceWith(...e.childNodes); else e.remove();
+    });
+    let blocked = 0;
+    doc.body.querySelectorAll('*').forEach((el) => {
+      for (const a of [...el.attributes]) {
+        const n = a.name.toLowerCase();
+        if (n.startsWith('on') || n === 'srcset' || n === 'contenteditable' || n === 'background' || n === 'tabindex') { el.removeAttribute(a.name); continue; }
+        if ((n === 'href' || n === 'src' || n === 'xlink:href') && /^\s*(javascript|vbscript):/i.test(a.value)) el.removeAttribute(a.name);
+      }
+      const st = el.getAttribute('style');
+      if (st) {
+        let s2 = st.replace(/url\([^)]*\)/gi, 'none').replace(/position\s*:\s*(fixed|absolute|sticky)/gi, 'position:static');
+        if (s2 !== st) el.setAttribute('style', s2);
+      }
+    });
+    doc.body.querySelectorAll('img').forEach((img) => {
+      const src = (img.getAttribute('src') || '').trim();
+      const w = parseInt(img.getAttribute('width') || '0', 10), hh = parseInt(img.getAttribute('height') || '0', 10);
+      if (/^cid:/i.test(src)) {
+        let key = src.slice(4); try { key = decodeURIComponent(key); } catch (e) {}
+        const c = cids[key.toLowerCase()];
+        if (c) { img.setAttribute('src', c.url); c.used = true; } else img.remove();
+        return;
+      }
+      if (/^(data:image\/|blob:)/i.test(src)) return;
+      if ((w && w <= 3) || (hh && hh <= 3)) { img.remove(); return; }
+      blocked++; img.remove();
+    });
+    trimTrailing(doc.body);
+    return { html: doc.body.innerHTML, blocked };
+  }
+  function isBlank(n) {
+    if (n.nodeType === 3) return !n.nodeValue.replace(/ /g, ' ').trim();
+    if (n.nodeType === 8) return true;
+    if (n.nodeType !== 1) return false;
+    if (n.tagName === 'BR') return true;
+    if (n.querySelector('img,table,hr,svg')) return false;
+    return !n.textContent.replace(/ /g, ' ').trim();
+  }
+  function trimTrailing(root) { while (root.lastChild && isBlank(root.lastChild)) root.lastChild.remove(); }
+
+  const QUOTE_SEL = [
+    '.gmail_quote_container', '.gmail_quote', '#divRplyFwdMsg', '#appendonsend', '.yahoo_quoted', '.moz-cite-prefix',
+    'blockquote[type="cite"]', 'div[style*="border-top:solid #E1E1E1"]', 'div[style*="border-top: solid #E1E1E1"]',
+    'div[style*="border-top:solid #B5C4DF"]', 'div[style*="border-top: solid #B5C4DF"]', '#mail-editor-reference-message-container'
+  ].join(',');
+  function stripQuotes(html) {
+    const doc = new DOMParser().parseFromString('<!doctype html><body>' + html + '</body>', 'text/html');
+    const b = doc.body;
+    const el = b.querySelector(QUOTE_SEL);
+    if (!el) return { html, found: false };
+    let start = el;
+    if (el.matches('blockquote[type="cite"]')) {
+      const prev = el.previousElementSibling;
+      if (prev && /wrote:\s*$/.test(prev.textContent.trim())) start = prev;
+    }
+    if (el.id === 'divRplyFwdMsg' || el.id === 'appendonsend') {
+      const prev = el.previousElementSibling;
+      if (prev && prev.tagName === 'HR') start = prev;
+    }
+    let node = start;
+    while (node && node !== b) { let n = node.nextSibling; while (n) { const nx = n.nextSibling; n.remove(); n = nx; } node = node.parentNode; }
+    start.remove();
+    // also strip any parents left empty, then trailing blanks
+    trimTrailing(b);
+    b.querySelectorAll('div').forEach((d) => { if (isBlank(d) && !d.nextSibling) d.remove(); });
+    trimTrailing(b);
+    return { html: b.innerHTML, found: true };
+  }
+
+  // ---------- Sample ----------
+  const SAMPLE = {
+    subject: 'Field visit schedule: Mbale and Tororo, 10–13 November',
+    from: 'Grace Namutebi <g.namutebi@example.org>',
+    to: 'Field Team <field-team@example.org>',
+    cc: 'David Okello <d.okello@example.org>',
+    date: 'Tue 3 Nov 2026, 17:42',
+    atts: 'Visit_checklist_Nov2026.pdf (182 KB)',
+    html: `<p>Dear team,</p>
+<p>Here is the confirmed schedule for next week’s field visits. Please check your assignment and tell me by <b>Thursday</b> if anything clashes.</p>
+<table class="sample-table"><thead><tr><th>Date</th><th>District</th><th>Sites</th><th>Lead</th></tr></thead><tbody>
+<tr><td>Tue 10 Nov</td><td>Mbale</td><td>Nakaloke HC III, Busiu HC IV</td><td>Grace</td></tr>
+<tr><td>Wed 11 Nov</td><td>Mbale</td><td>Bungokho HC III</td><td>David</td></tr>
+<tr><td>Thu 12 Nov</td><td>Tororo</td><td>Mulanda HC IV, Nagongera HC IV</td><td>Sarah</td></tr>
+<tr><td>Fri 13 Nov</td><td>Tororo</td><td>Debrief at the district office</td><td>All</td></tr>
+</tbody></table>
+<p style="margin-top:1em"><b>Departure:</b> vehicles leave the Kampala office at 6:30 am on Tuesday. Please be at the gate by 6:15.</p>
+<p><b>Bring:</b> staff ID, the printed checklist (attached) and a power bank. Per diem forms will be signed on the morning of departure.</p>
+<p>Please upload each day’s data by 8:00 pm so we can review it before the next visit.</p>
+<p>Thank you,<br>Grace</p>
+<p style="color:#5b636e;font-size:12.5px">Grace Namutebi | Programme Coordinator</p>`
+  };
+
+  // ---------- Loading content into the editor ----------
+  const F = { subject: $('#fSubject'), from: $('#fFrom'), to: $('#fTo'), cc: $('#fCc'), date: $('#fDate'), atts: $('#fAtt') };
+  const bodyEl = $('#body');
+
+  function setChip(text, loaded) { const c = $('#srcChip'); c.textContent = text; c.classList.toggle('loaded', !!loaded); }
+  function applyBodyFromSource() {
+    const optQ = $('#optQuote');
+    const r = stripQuotes(state.sourceHtml);
+    state.hasQuote = r.found;
+    optQ.disabled = !r.found;
+    $('#quoteSub').textContent = r.found ? 'Changing this reloads the body and undoes your edits' : 'Only shows when the email has a quoted reply';
+    bodyEl.innerHTML = (r.found && optQ.checked) ? r.html : state.sourceHtml;
+  }
+  function loadMessage(msg, label, loaded) {
+    for (const k in F) F[k].value = msg[k] || '';
+    state.sourceHtml = msg.html || '';
+    state.blocked = msg.blocked || 0;
+    $('#optQuote').checked = true;
+    applyBodyFromSource();
+    const note = $('#imgNote');
+    if (state.blocked) { note.hidden = false; note.textContent = `${state.blocked} image${state.blocked > 1 ? 's' : ''} hosted online (often logos in signatures) couldn’t be included. Images sent inside the email are kept. You can paste an image into the body if you need it.`; }
+    else note.hidden = true;
+    setChip(label, loaded);
+    scheduleRender(0);
+  }
+
+  async function handleFile(file) {
+    if (!file) return;
+    if (/\.msg$/i.test(file.name)) { toast('Outlook .msg files aren’t supported. Use “Start blank and paste”, or save the email as .eml.', 6000); return; }
+    try {
+      const buf = new Uint8Array(await file.arrayBuffer());
+      const msg = parseEml(buf);
+      loadMessage(msg, file.name.length > 28 ? file.name.slice(0, 26) + '…' : file.name, true);
+      toast('Email loaded');
+    } catch (e) {
+      toast('That file doesn’t look like an email. Choose an .eml file, or paste the email instead.', 6000);
+    }
+  }
+
+  $('#openBtn').addEventListener('click', () => $('#fileInput').click());
+  $('#fileInput').addEventListener('change', (e) => { handleFile(e.target.files[0]); e.target.value = ''; });
+  $('#blankBtn').addEventListener('click', () => {
+    loadMessage({ subject: '', from: '', to: '', cc: '', date: fmtDate(new Date()), atts: '', html: '' }, 'Pasted email', true);
+    F.subject.focus();
+    toast('Fill in the header, then paste the email body');
+  });
+
+  // Window-wide drag and drop
+  let dragDepth = 0;
+  const hasFiles = (e) => e.dataTransfer && [...(e.dataTransfer.types || [])].includes('Files');
+  window.addEventListener('dragenter', (e) => { if (!hasFiles(e)) return; e.preventDefault(); dragDepth++; $('#dropOverlay').hidden = false; });
+  window.addEventListener('dragover', (e) => { if (hasFiles(e)) e.preventDefault(); });
+  window.addEventListener('dragleave', (e) => { if (!hasFiles(e)) return; dragDepth = Math.max(0, dragDepth - 1); if (!dragDepth) $('#dropOverlay').hidden = true; });
+  window.addEventListener('drop', (e) => {
+    if (!hasFiles(e)) return;
+    e.preventDefault(); dragDepth = 0; $('#dropOverlay').hidden = true;
+    const f = e.dataTransfer.files[0];
+    if (!f) return;
+    if (e.target.closest && e.target.closest('#body') && /^image\//.test(f.type)) { insertImageFile(f); return; }
+    handleFile(f);
+  });
+
+  // Paste into the body: sanitise HTML, accept images, detect raw message source
+  function insertHtmlAtCursor(html) {
+    bodyEl.focus();
+    if (!document.execCommand('insertHTML', false, html)) {
+      const sel = window.getSelection();
+      const frag = document.createRange().createContextualFragment(html);
+      if (sel.rangeCount && bodyEl.contains(sel.anchorNode)) { const r = sel.getRangeAt(0); r.deleteContents(); r.insertNode(frag); }
+      else bodyEl.appendChild(frag);
+    }
+    scheduleRender();
+  }
+  function insertImageFile(file) {
+    const url = URL.createObjectURL(file);
+    insertHtmlAtCursor(`<img src="${url}" alt="">`);
+  }
+  const looksRaw = (t) => /^(?:[\w-]+:.*\r?\n(?:[ \t].*\r?\n)*){3,}/.test(t.slice(0, 4000)) && /^(from|subject):/im.test(t.slice(0, 8000)) && /^(content-type|mime-version):/im.test(t);
+  bodyEl.addEventListener('paste', (e) => {
+    const cd = e.clipboardData; if (!cd) return;
+    const img = [...cd.files].find((f) => /^image\//.test(f.type));
+    const html = cd.getData('text/html'), text = cd.getData('text/plain');
+    if (text && looksRaw(text.trimStart())) {
+      e.preventDefault();
+      try { loadMessage(parseEml(new TextEncoder().encode(text.trimStart())), 'Pasted source', true); toast('Email source read'); }
+      catch (err) { toast('Couldn’t read that as an email source.'); }
+      return;
+    }
+    if (html) { e.preventDefault(); insertHtmlAtCursor(sanitizeHtml(extractBody(html), {}).html); return; }
+    if (img) { e.preventDefault(); insertImageFile(img); return; }
+    if (text) { e.preventDefault(); insertHtmlAtCursor(esc(text).replace(/\r?\n/g, '<br>')); }
+  });
+  bodyEl.addEventListener('input', () => scheduleRender());
+
+  // ---------- Options ----------
+  $('#fOrg').value = settings.org || '';
+  $('#optNames').checked = !!settings.namesOnly;
+  $('#optFooter').checked = settings.footer !== false;
+  document.querySelectorAll('input[name="dpi"]').forEach((r) => { r.checked = Number(r.value) === Number(settings.dpi); });
+  for (const k in F) F[k].addEventListener('input', () => scheduleRender());
+  $('#fOrg').addEventListener('input', (e) => { settings.org = e.target.value; saveSettings(); scheduleRender(); });
+  $('#optNames').addEventListener('change', (e) => { settings.namesOnly = e.target.checked; saveSettings(); scheduleRender(0); });
+  $('#optFooter').addEventListener('change', (e) => { settings.footer = e.target.checked; saveSettings(); scheduleRender(0); });
+  $('#optQuote').addEventListener('change', () => { applyBodyFromSource(); scheduleRender(0); });
+  document.querySelectorAll('input[name="dpi"]').forEach((r) => r.addEventListener('change', () => { settings.dpi = Number(r.value); saveSettings(); updateDims(); }));
+  document.querySelectorAll('input[name="pstyle"]').forEach((r) => {
+    r.checked = r.value === settings.style;
+    r.addEventListener('change', () => { settings.style = r.value; saveSettings(); scheduleRender(0); });
+  });
+  if (!ACCENTS[settings.accent]) settings.accent = 'navy';
+  const sw = $('#swatches');
+  for (const key in ACCENTS) {
+    const a = ACCENTS[key];
+    const lab = document.createElement('label'); lab.style.background = a.c; lab.title = a.name;
+    const inp = document.createElement('input'); inp.type = 'radio'; inp.name = 'accent'; inp.value = key; inp.id = 'accent-' + key;
+    inp.setAttribute('aria-label', a.name); inp.checked = key === settings.accent;
+    inp.addEventListener('change', () => { settings.accent = key; saveSettings(); scheduleRender(0); });
+    lab.appendChild(inp); sw.appendChild(lab);
+  }
+  $('#optTidy').checked = settings.tidy !== false;
+  $('#optTidy').addEventListener('change', (e) => { settings.tidy = e.target.checked; saveSettings(); scheduleRender(0); });
+
+  // ---------- Addresses ----------
+  function splitAddrs(s) {
+    const out = []; let cur = '', q = false, a = 0;
+    for (const ch of s || '') {
+      if (ch === '"') q = !q;
+      if (!q) { if (ch === '<') a++; if (ch === '>') a--; if ((ch === ',' || ch === ';') && a <= 0) { if (cur.trim()) out.push(cur.trim()); cur = ''; continue; } }
+      cur += ch;
+    }
+    if (cur.trim()) out.push(cur.trim());
+    return out;
+  }
+  function addrNode(list, namesOnly) {
+    const dd = document.createElement('dd');
+    splitAddrs(list).forEach((s, i) => {
+      if (i) dd.appendChild(document.createTextNode(', '));
+      const m = s.match(/^\s*"?([^"<]*?)"?\s*<([^>]+)>\s*$/);
+      let name = s, addr = '';
+      if (m) { name = m[1].trim(); addr = m[2].trim(); }
+      else if (/^[^\s@]+@[^\s@]+$/.test(s)) { name = ''; addr = s; }
+      if (namesOnly) { dd.appendChild(document.createTextNode(name || addr.split('@')[0])); return; }
+      if (name) dd.appendChild(document.createTextNode(name));
+      if (addr) { const sp = document.createElement('span'); sp.className = 'addr'; sp.textContent = (name ? ' ' : '') + (name ? `<${addr}>` : addr); dd.appendChild(sp); }
+    });
+    return dd;
+  }
+
+  // ---------- Build the off-screen paper column ----------
+  const paper = $('#paper');
+  function buildPaper() {
+    paper.innerHTML = '';
+    const style = ['classic', 'letterhead', 'memo'].includes(settings.style) ? settings.style : 'classic';
+    paper.className = 'style-' + style;
+    const ac = ACCENTS[settings.accent] || ACCENTS.navy;
+    paper.style.setProperty('--pa', ac.c); paper.style.setProperty('--pa-tint', ac.tint); paper.style.setProperty('--pa-line', ac.line);
+    const head = document.createElement('div'); head.className = 'p-head'; paper.appendChild(head);
+    if (style === 'memo') { const mt = document.createElement('div'); mt.className = 'p-memo-title'; mt.textContent = 'Memo'; head.appendChild(mt); }
+    if (settings.org && settings.org.trim()) {
+      const lh = document.createElement('div'); lh.className = 'p-letter';
+      const o = document.createElement('div'); o.className = 'org'; o.textContent = settings.org.trim();
+      const k = document.createElement('div'); k.className = 'kind'; k.textContent = 'Email';
+      lh.append(o, k); head.appendChild(lh);
+    }
+    const subj = F.subject.value.trim() || '(No subject)';
+    const h = document.createElement('h1'); h.className = 'p-subject'; h.textContent = subj; head.appendChild(h);
+    const dl = document.createElement('dl'); dl.className = 'p-meta';
+    const addRow = (label, dd) => { const dt = document.createElement('dt'); dt.textContent = label; dl.append(dt, dd); };
+    const plain = (v, cls) => { const dd = document.createElement('dd'); dd.textContent = v; if (cls) dd.className = cls; return dd; };
+    const rows = {
+      From: () => F.from.value.trim() && addRow('From', addrNode(F.from.value, settings.namesOnly)),
+      To: () => F.to.value.trim() && addRow('To', addrNode(F.to.value, settings.namesOnly)),
+      Cc: () => F.cc.value.trim() && addRow('Cc', addrNode(F.cc.value, settings.namesOnly)),
+      Date: () => F.date.value.trim() && addRow('Date', plain(F.date.value.trim())),
+      Subject: () => addRow('Subject', plain(subj, 'subj')),
+      Attached: () => F.atts.value.trim() && addRow('Attached', plain(F.atts.value.trim()))
+    };
+    const order = style === 'memo' ? ['To', 'Cc', 'From', 'Date', 'Subject', 'Attached'] : ['From', 'To', 'Cc', 'Date', 'Attached'];
+    order.forEach((k) => rows[k]());
+    if (dl.children.length) head.appendChild(dl);
+    const rule = document.createElement('div'); rule.className = 'p-rule'; head.appendChild(rule);
+    const b = document.createElement('div'); b.className = 'p-body'; b.innerHTML = bodyEl.innerHTML; paper.appendChild(b);
+    if (settings.tidy !== false) tidyBody(b);
+    trimTrailing(b);
+  }
+
+  // ---------- Tidy formatting: consistent type, spacing and tables ----------
+  function isBlankBlock(el) {
+    return /^(P|DIV)$/.test(el.tagName) && !el.querySelector('img,table,hr,svg,video') && !el.textContent.replace(/ /g, ' ').trim();
+  }
+  function tidyBody(root) {
+    root.querySelectorAll('font').forEach((f) => f.replaceWith(...f.childNodes));
+    root.querySelectorAll('[face],[size],[color]').forEach((el) => { if (el.tagName !== 'HR') { el.removeAttribute('face'); el.removeAttribute('size'); el.removeAttribute('color'); } });
+    root.querySelectorAll('[style]').forEach((el) => {
+      for (const p of [...el.style]) if (/^(font-family|font-size|line-height|color|font|letter-spacing|text-indent|mso-)/.test(p)) el.style.removeProperty(p);
+      if (el.tagName === 'SPAN' || el.tagName === 'P' || el.tagName === 'DIV') { el.style.removeProperty('background'); el.style.removeProperty('background-color'); }
+      if (!(el.getAttribute('style') || '').trim()) el.removeAttribute('style');
+    });
+    // Data tables get the house table style; layout tables are left alone
+    root.querySelectorAll('table').forEach((t) => {
+      if (t.querySelector('table')) return;
+      const rowsN = t.rows.length, cols = t.rows[0] ? t.rows[0].cells.length : 0;
+      if (rowsN < 2 || cols < 2) return;
+      const cells = [...t.querySelectorAll('td,th')];
+      const hasTh = !!t.querySelector('th');
+      const bordered = parseInt(t.getAttribute('border') || '0', 10) > 0 || /border/i.test(t.getAttribute('style') || '') || cells.slice(0, 8).some((c) => /border/i.test(c.getAttribute('style') || ''));
+      if (!hasTh && !bordered) return;
+      t.className = 'p-data';
+      ['width', 'border', 'cellpadding', 'cellspacing', 'bgcolor', 'style', 'align'].forEach((a) => t.removeAttribute(a));
+      t.querySelectorAll('tr,td,th,thead,tbody').forEach((c) => {
+        for (const p of [...c.style]) if (/^(border|background|padding|width|height|mso-)/.test(p)) c.style.removeProperty(p);
+        ['bgcolor', 'width', 'height', 'background'].forEach((a) => c.removeAttribute(a));
+        if (!(c.getAttribute('style') || '').trim()) c.removeAttribute('style');
+      });
+      const first = t.rows[0];
+      if (!t.tHead && first && [...first.cells].every((c) => c.tagName === 'TH' || (c.textContent.trim() && c.querySelector('b,strong') && c.querySelector('b,strong').textContent.trim() === c.textContent.trim()))) first.classList.add('p-hrow');
+    });
+    // Collapse runs of blank lines
+    root.querySelectorAll('p,div').forEach((el) => {
+      if (!el.isConnected || !isBlankBlock(el)) return;
+      const prev = el.previousElementSibling;
+      if (!prev || isBlankBlock(prev)) el.remove();
+    });
+    root.querySelectorAll('br').forEach((br) => {
+      let n = br.nextSibling, run = 1;
+      while (n && (n.nodeName === 'BR' || (n.nodeType === 3 && !n.nodeValue.trim()))) { if (n.nodeName === 'BR') run++; n = n.nextSibling; }
+      if (run > 2) { let k = br.nextSibling, seen = 1; while (k && k !== n) { const nx = k.nextSibling; if (k.nodeName === 'BR') { seen++; if (seen > 2) k.remove(); } k = nx; } }
+    });
+  }
+
+  // ---------- Pagination: break only between lines, rows and images ----------
+  function collectRects() {
+    const top0 = paper.getBoundingClientRect().top;
+    const all = [], lines = [];
+    const walker = document.createTreeWalker(paper, NodeFilter.SHOW_TEXT);
+    const range = document.createRange();
+    let n;
+    while ((n = walker.nextNode())) {
+      if (!n.nodeValue.trim()) continue;
+      range.selectNodeContents(n);
+      for (const r of range.getClientRects()) if (r.height > 0) { const x = [r.top - top0, r.bottom - top0]; all.push(x); lines.push(x); }
+    }
+    paper.querySelectorAll('img,svg,hr,canvas,video,tr,.p-rule,.p-letter').forEach((el) => {
+      const r = el.getBoundingClientRect();
+      if (r.height > 0) { const x = [r.top - top0, r.bottom - top0]; all.push(x); if (el.tagName !== 'TR') lines.push(x); }
+    });
+    return { all, lines };
+  }
+  function findBreak(rects, s, L) {
+    const min = s + CAP * 0.25;
+    const cands = new Set([L]);
+    for (const [t, b] of rects) { if (b > min && b <= L) cands.add(Math.ceil(b) + 1); if (t > min && t <= L) cands.add(Math.floor(t) - 1); }
+    const sorted = [...cands].filter((y) => y > min && y <= L).sort((a, b) => b - a);
+    for (const y of sorted) if (!rects.some(([t, b]) => t < y - 0.5 && b > y + 0.5)) return y;
+    return null;
+  }
+  function paginate() {
+    const { all, lines } = collectRects();
+    let H = Math.ceil(paper.getBoundingClientRect().height);
+    const maxB = all.reduce((m, r) => Math.max(m, r[1]), 0);
+    H = Math.max(1, Math.min(H, Math.ceil(maxB) + 6));
+    const pages = []; let s = 0;
+    while (s < H - 2 && pages.length < 60) {
+      if (H - s <= CAP) { pages.push([s, H]); break; }
+      const L = s + CAP;
+      let y = findBreak(all, s, L);
+      if (y == null) y = findBreak(lines, s, L);
+      if (y == null) y = L;
+      pages.push([s, y]); s = y;
+    }
+    if (!pages.length) pages.push([0, H]);
+    return pages;
+  }
+
+  // ---------- Drawing a page ----------
+  async function waitImages() {
+    await Promise.all([...paper.querySelectorAll('img')].map((img) => img.complete ? (img.decode ? img.decode().catch(() => {}) : null) : new Promise((r) => { img.onload = img.onerror = r; })));
+  }
+  async function drawPage(slice, idx, total, W, H) {
+    const scale = W / A4W;
+    const c = document.createElement('canvas'); c.width = W; c.height = H;
+    const ctx = c.getContext('2d');
+    ctx.fillStyle = '#ffffff'; ctx.fillRect(0, 0, W, H);
+    const ac = ACCENTS[settings.accent] || ACCENTS.navy;
+    const isLetter = settings.style === 'letterhead';
+    if (isLetter) { ctx.fillStyle = ac.c; ctx.fillRect(0, 0, W, Math.round((idx === 0 ? 10 : 5) * scale)); }
+    const h = Math.max(1, Math.ceil(slice[1] - slice[0]));
+    const shot = await html2canvas(paper, {
+      scale, x: 0, y: slice[0], width: COLW, height: h,
+      backgroundColor: '#ffffff', logging: false, useCORS: false,
+      ignoreElements: (el) => el.id === 'app' || el.id === 'toast' || el.id === 'dropOverlay'
+    });
+    ctx.drawImage(shot, Math.round(MX * scale), Math.round(MT * scale));
+    if (settings.footer) {
+      const y = H - 40 * scale;
+      ctx.fillStyle = '#e1e5ea'; ctx.fillRect(MX * scale, y - 16 * scale, COLW * scale, Math.max(1, Math.round(scale)));
+      ctx.fillStyle = isLetter ? ac.c : '#6b7380';
+      ctx.font = `${10.5 * scale}px "IBM Plex Sans", Arial, sans-serif`;
+      ctx.textBaseline = 'alphabetic';
+      const right = `Page ${idx + 1} of ${total}`;
+      const rw = ctx.measureText(right).width;
+      ctx.textAlign = 'right'; ctx.fillText(right, (A4W - MX) * scale, y);
+      let left = F.subject.value.trim() || (settings.org || '').trim();
+      const maxW = COLW * scale - rw - 24 * scale;
+      if (left && ctx.measureText(left).width > maxW) { while (left.length > 1 && ctx.measureText(left + '…').width > maxW) left = left.slice(0, -1); left += '…'; }
+      ctx.textAlign = 'left'; if (left) ctx.fillText(left, MX * scale, y);
+    }
+    return c;
+  }
+
+  // ---------- Preview ----------
+  function updateDims() {
+    const [w, h] = a4px(settings.dpi);
+    const n = state.pages.length || 1;
+    $('#dims').innerHTML = `A4 · ${settings.dpi} DPI · <b>${w} × ${h} px</b> · ${n} page${n > 1 ? 's' : ''}`;
+    $('#saveAll').textContent = n > 1 ? `Save all ${n} pages` : 'Save image';
+  }
+  let renderTimer = null;
+  function scheduleRender(delay = 450) {
+    clearTimeout(renderTimer); renderTimer = setTimeout(renderPreview, delay);
+    if (state.shareFiles) { state.shareFiles = null; const sb = $('#shareBtn'); if (sb) sb.textContent = 'Share'; }
+  }
+  async function renderPreview() {
+    if (typeof html2canvas !== 'function') { $('#pages').innerHTML = '<p class="notice">The page renderer didn’t load. Reload the page to try again.</p>'; return; }
+    if (state.rendering) { state.pending = true; return; }
+    state.rendering = true; $('#busy').hidden = false;
+    try {
+      buildPaper();
+      try { await document.fonts.ready; } catch (e) {}
+      await waitImages();
+      state.pages = paginate();
+      const W = Math.round(A4W * PREVIEW_SCALE), H = Math.round(A4H * PREVIEW_SCALE);
+      const holder = $('#pages');
+      const cards = [];
+      for (let i = 0; i < state.pages.length; i++) {
+        const cv = await drawPage(state.pages[i], i, state.pages.length, W, H);
+        cv.setAttribute('role', 'img'); cv.setAttribute('aria-label', `Page ${i + 1} preview`);
+        const card = document.createElement('div'); card.className = 'page-card';
+        const bar = document.createElement('div'); bar.className = 'page-bar';
+        const lbl = document.createElement('span'); lbl.className = 'lbl'; lbl.textContent = `Page ${i + 1} of ${state.pages.length}`;
+        const acts = document.createElement('div'); acts.className = 'row';
+        const copy = document.createElement('button'); copy.className = 'btn small'; copy.type = 'button'; copy.textContent = 'Copy image';
+        copy.addEventListener('click', () => copyPage(i));
+        const save = document.createElement('button'); save.className = 'btn small'; save.type = 'button'; save.textContent = 'Save PNG';
+        save.addEventListener('click', () => savePages([i]));
+        acts.append(copy, save); bar.append(lbl, acts);
+        card.append(cv, bar); cards.push(card);
+      }
+      holder.replaceChildren(...cards);
+      holder.classList.toggle('multi', state.pages.length > 1);
+      updateDims();
+    } catch (e) {
+      console.error(e);
+      $('#pages').innerHTML = '<p class="notice">Something in this email couldn’t be drawn. Try removing unusual content from the body.</p>';
+    } finally {
+      state.rendering = false; $('#busy').hidden = true;
+      if (state.pending) { state.pending = false; scheduleRender(50); }
+    }
+  }
+
+  // ---------- Export ----------
+  function fileBase() {
+    const s = (F.subject.value.trim() || 'Email').replace(/[\\/:*?"<>|#%{}~&]+/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 80);
+    return s || 'Email';
+  }
+  async function renderFull(i) {
+    if (state.rendering) await new Promise((r) => { const t = setInterval(() => { if (!state.rendering) { clearInterval(t); r(); } }, 60); });
+    buildPaper(); try { await document.fonts.ready; } catch (e) {} await waitImages();
+    state.pages = paginate();
+    const [W, H] = a4px(settings.dpi);
+    const cv = await drawPage(state.pages[i], i, state.pages.length, W, H);
+    return new Promise((res, rej) => cv.toBlob((b) => b ? res(b) : rej(new Error('blob')), 'image/png'));
+  }
+  async function savePages(indices) {
+    if (!(await canSave())) { toast('Saving files isn’t available in this view. Open this page in Claude, or use Copy image.', 6000); return; }
+    const total = state.pages.length;
+    $('#busy').hidden = false; $('#busy').textContent = 'Preparing…';
+    try {
+      for (const i of indices) {
+        const blob = await renderFull(i);
+        const name = total > 1 ? `${fileBase()} - page ${i + 1} of ${total}.png` : `${fileBase()}.png`;
+        try { await deliver(name, blob); if (!IN_CLAUDE && indices.length > 1) await new Promise((r) => setTimeout(r, 400)); }
+        catch (err) {
+          if (err && err.code === 'declined') { toast('Save cancelled'); return; }
+          if (err && err.code === 'rate_limited') { toast('Finish the open save first, then try again.'); return; }
+          toast('Couldn’t save the image here. Try Copy image instead.', 5000); return;
+        }
+      }
+      toast(indices.length > 1 ? `Saved ${indices.length} pages` : 'Saved');
+    } finally { $('#busy').hidden = true; $('#busy').textContent = 'Updating…'; }
+  }
+  function copyPage(i) {
+    if (!navigator.clipboard || typeof ClipboardItem === 'undefined') { toast('Copying images isn’t supported here. Use Save PNG.'); return; }
+    const p = renderFull(i);
+    navigator.clipboard.write([new ClipboardItem({ 'image/png': p })])
+      .then(() => toast('Image copied. Paste it into the WhatsApp chat.'))
+      .catch(() => toast('Copying images isn’t allowed here. Use Save PNG.', 5000));
+  }
+  $('#saveAll').addEventListener('click', () => savePages(state.pages.map((_, i) => i)));
+
+  async function savePdf() {
+    if (!(await canSave())) { toast('Saving files isn’t available in this view. Open this page in Claude.', 6000); return; }
+    if (!window.jspdf || !window.jspdf.jsPDF) { toast('The PDF maker didn’t load. Reload the page to try again.', 5000); return; }
+    const btn = $('#savePdf'); btn.disabled = true;
+    const busy = $('#busy'); busy.hidden = false; busy.textContent = 'Making PDF…';
+    try {
+      if (state.rendering) await new Promise((r) => { const t = setInterval(() => { if (!state.rendering) { clearInterval(t); r(); } }, 60); });
+      buildPaper(); try { await document.fonts.ready; } catch (e) {} await waitImages();
+      state.pages = paginate();
+      const n = state.pages.length;
+      const [W, H] = a4px(settings.dpi);
+      const pdf = new window.jspdf.jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait', compress: true });
+      pdf.setProperties({ title: F.subject.value.trim() || 'Email' });
+      for (let i = 0; i < n; i++) {
+        busy.textContent = `Making PDF… page ${i + 1} of ${n}`;
+        const cv = await drawPage(state.pages[i], i, n, W, H);
+        if (i) pdf.addPage('a4', 'portrait');
+        pdf.addImage(cv.toDataURL('image/jpeg', 0.94), 'JPEG', 0, 0, 210, 297, undefined, 'FAST');
+      }
+      const blob = pdf.output('blob');
+      try { await deliver(`${fileBase()}.pdf`, blob); toast(n > 1 ? `PDF saved with ${n} pages` : 'PDF saved'); }
+      catch (err) {
+        if (err && err.code === 'declined') toast('Save cancelled');
+        else if (err && err.code === 'rate_limited') toast('Finish the open save first, then try again.');
+        else toast('Couldn’t save the PDF here.', 5000);
+      }
+    } catch (e) {
+      console.error(e); toast('Something went wrong making the PDF. Try again.', 5000);
+    } finally { btn.disabled = false; busy.hidden = true; busy.textContent = 'Updating…'; }
+  }
+  $('#savePdf').addEventListener('click', savePdf);
+
+  // Share sheet (only outside Claude, on devices that can share files — e.g. phones → WhatsApp)
+  (function setupShare() {
+    const btn = $('#shareBtn');
+    let ok = false;
+    try { ok = !IN_CLAUDE && !!navigator.canShare && navigator.canShare({ files: [new File(['x'], 'x.png', { type: 'image/png' })] }); } catch (e) { ok = false; }
+    if (!ok) return;
+    btn.hidden = false;
+    const doShare = async (files) => {
+      try { await navigator.share({ files, title: F.subject.value.trim() || 'Email' }); state.shareFiles = null; btn.textContent = 'Share'; return true; }
+      catch (e) {
+        if (e && e.name === 'AbortError') { state.shareFiles = null; btn.textContent = 'Share'; return true; }
+        if (e && e.name === 'NotAllowedError') return false;
+        state.shareFiles = null; btn.textContent = 'Share'; toast('Couldn’t open sharing. Use Save instead.'); return true;
+      }
+    };
+    btn.addEventListener('click', async () => {
+      if (state.shareFiles) { await doShare(state.shareFiles); return; }
+      btn.disabled = true; btn.textContent = 'Preparing…';
+      try {
+        const files = [];
+        const total = state.pages.length || 1;
+        for (let i = 0; i < total; i++) {
+          const blob = await renderFull(i);
+          const name = state.pages.length > 1 ? `${fileBase()} - page ${i + 1} of ${state.pages.length}.png` : `${fileBase()}.png`;
+          files.push(new File([blob], name, { type: 'image/png' }));
+        }
+        btn.disabled = false;
+        // The phone may need a fresh tap after preparing; keep the files ready for it.
+        if (!(await doShare(files))) { state.shareFiles = files; btn.textContent = 'Tap to share'; }
+      } catch (e) { toast('Couldn’t prepare the images. Try again.'); btn.textContent = 'Share'; }
+      finally { btn.disabled = false; }
+    });
+  })();
+
+  // ---------- Start ----------
+  loadMessage(SAMPLE, 'Sample email', false);
+  updateDims();
+  window.__emailA4 = { parseEml, stripQuotes, paginate: () => state.pages, renderFull, loadMessage, state };
+})();
+</script>
+
+</body>
+</html>
